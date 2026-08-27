@@ -2350,8 +2350,14 @@ class HexFormatter:
                 s = s[16:]
                 result += (
                     f"\n    {hexify(line[:8], False):<16s} "
-                    f"{hexify(line[8:], False):<16s} | {escape(ascii_line)}"
+                    f"{hexify(line[8:], False):<16s} | {ascii_line}"
                 )
-            return result
+            # Escape the whole dump at once, not per line. Rich parses
+            # markup over the fully concatenated message, and
+            # rich.markup.escape only escapes complete "[...]" tags -- so a
+            # "[/" ending one ASCII column and a "]" in a later one slip
+            # through per-line escaping, then combine into a tag the parser
+            # rejects with MarkupError.
+            return escape(result)
         else:
             return hexify(self._s, False)
