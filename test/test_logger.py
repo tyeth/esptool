@@ -477,3 +477,44 @@ class TestLogger:
         logger.set_logger(legacy)
         log.print("installed")
         assert legacy.prints == [(("installed",), {})]
+
+
+@pytest.mark.host_test
+class TestHexFormatterMarkupSafety:
+    """`HexFormatter` output must never be parsed as Rich markup.
+
+    The ASCII column of a hex dump is arbitrary flash content, so it can
+    contain anything that looks like a Rich tag. `rich.markup.escape`
+    only escapes *complete* ``[...]`` tags, so escaping each 16-byte dump
+    line separately let a ``[/`` at the end of one line pair up with a
+    ``]`` on a later line once the lines were concatenated -- producing a
+    tag the parser matched and rejected with `MarkupError`.
+    """
+
+    @pytest.fixture
+    def logger(self):
+        return EsptoolLogger()
+
+    @pytest.mark.parametrize(
+        "name, data",
+        [
+            # "[/" ends dump line 1, "]" appears on dump line 2
+            ("closing tag split across lines", bytes(range(14)) + b"[/" + b"A" * 15 + b"]"),
+            ("closing tag within one line", b"X" * 8 + b"[/bold]" + b"Y" * 17),
+            ("unclosed opening bracket", b"Z" * 14 + b"[/" + b"W" * 16),
+            ("opening tag", b"q" * 10 + b"[red]" + b"r" * 17),
+            ("every byte value", bytes(range(256))),
+        ],
+    )
+    def test_dump_never_raises_markup_error(self, logger, name, data):
+        from esptool.loader import HexFormatter
+
+        # Must not raise rich.errors.MarkupError
+        log.print(f"trace: {HexFormatter(data)}", style="dim")
+
+    def test_ascii_column_is_preserved(self):
+        """Escaping must not drop the bracket characters from the dump."""
+        from esptool.loader import HexFormatter
+
+        dump = str(HexFormatter(b"X" * 8 + b"[/bold]" + b"Y" * 17))
+        assert "[/bold]" in dump.replace("\\", "")
