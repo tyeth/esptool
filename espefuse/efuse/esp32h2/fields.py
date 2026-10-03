@@ -88,14 +88,10 @@ class EspEfuses(base_fields.EspEfusesBase):
         self.efuses = self._convert_efuse_defs(self.Fields.EFUSES)
         self.efuses += self._convert_efuse_defs(self.Fields.KEYBLOCKS)
         if skip_connect:
-            self.efuses += self._convert_efuse_defs(
-                self.Fields.BLOCK2_CALIBRATION_EFUSES
-            )
+            self.efuses += self._convert_efuse_defs(self.Fields.CALIBRATION_EFUSES)
         else:
             if self.get_block_version() >= 2:
-                self.efuses += self._convert_efuse_defs(
-                    self.Fields.BLOCK2_CALIBRATION_EFUSES
-                )
+                self.efuses += self._convert_efuse_defs(self.Fields.CALIBRATION_EFUSES)
             self.efuses += self._convert_efuse_defs(self.Fields.CALC)
 
         if self.get_chip_version() <= 101:
@@ -106,7 +102,7 @@ class EspEfuses(base_fields.EspEfusesBase):
         return [EfuseField.convert(self, efuse) for efuse in efuse_defs]
 
     def _get_lazy_efuse_groups(self):
-        return [self.Fields.BLOCK2_CALIBRATION_EFUSES]
+        return [self.Fields.CALIBRATION_EFUSES]
 
     def read_coding_scheme(self):
         self.coding_scheme = self.REGS.CODING_SCHEME_RS
@@ -235,10 +231,7 @@ class EspEfuses(base_fields.EspEfusesBase):
         ret_fail = False
         for block in self.blocks:
             if block.id == 0:
-                words = [
-                    self.read_reg(self.REGS.EFUSE_RD_REPEAT_ERR0_REG + offs * 4)
-                    for offs in range(5)
-                ]
+                words = [self.read_reg(reg) for reg in self.REGS.BLOCK0_ERRORS]
                 block.err_bitarray.pos = 0
                 for word in reversed(words):
                     block.err_bitarray.overwrite(BitArray(f"uint:32={word}"))

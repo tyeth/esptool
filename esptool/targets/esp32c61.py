@@ -14,6 +14,14 @@ class ESP32C61ROM(ESP32C6ROM):
     CHIP_NAME = "ESP32-C61"
     IMAGE_CHIP_ID = 20
 
+    USB_OTG_SUPPORTED = False
+    USB_SERIAL_JTAG_SUPPORTED = True
+    WATCHDOG_RESET_SUPPORTED = True
+    SECURITY_INFO_SUPPORTED = True
+    CUSTOM_SPI_FLASH_PINS_SUPPORTED = False
+    FLASH_32BIT_ADDR_SUPPORTED = True
+    USES_MAGIC_VALUE = False
+
     UART_DATE_REG_ADDR = 0x60000000 + 0x7C
 
     EFUSE_BASE = 0x600B4800
@@ -79,6 +87,18 @@ class ESP32C61ROM(ESP32C6ROM):
         num_word = 2
         return (self.read_reg(self.EFUSE_BLOCK1_ADDR + (4 * num_word)) >> 26) & 0x07
 
+    def get_flash_cap(self):
+        num_word = 2
+        return (self.read_reg(self.EFUSE_BLOCK1_ADDR + (4 * num_word)) >> 13) & 0x07
+
+    def get_psram_cap(self):
+        num_word = 2
+        return (self.read_reg(self.EFUSE_BLOCK1_ADDR + (4 * num_word)) >> 19) & 0x07
+
+    def get_temp(self):
+        num_word = 2
+        return (self.read_reg(self.EFUSE_BLOCK1_ADDR + (4 * num_word)) >> 24) & 0x03
+
     def get_minor_chip_version(self):
         num_word = 2
         return (self.read_reg(self.EFUSE_BLOCK1_ADDR + (4 * num_word)) >> 0) & 0x0F
@@ -88,15 +108,39 @@ class ESP32C61ROM(ESP32C6ROM):
         return (self.read_reg(self.EFUSE_BLOCK1_ADDR + (4 * num_word)) >> 4) & 0x03
 
     def get_chip_description(self):
-        chip_name = {
-            0: "ESP32-C61",
-        }.get(self.get_pkg_version(), "Unknown ESP32-C61")
+        # ESP32-C61 + temperature + in-package flash + PSRAM + package type;
+        # "?" marks a field whose value is not recognized
+        chip_name = "ESP32-C61"
+        chip_name += {0: "N", 1: "H"}.get(self.get_temp(), "?")
+        chip_name += {0: "", 1: "F4", 2: "F8"}.get(self.get_flash_cap(), "F?")
+        chip_name += {0: "", 1: "R2", 2: "R8"}.get(self.get_psram_cap(), "R?")
+        chip_name += {0: "", 1: "", 2: "", 3: "LA"}.get(self.get_pkg_version(), "?")
+
+        if "?" in chip_name:
+            chip_name = "Unknown " + chip_name
+
         major_rev = self.get_major_chip_version()
         minor_rev = self.get_minor_chip_version()
         return f"{chip_name} (revision v{major_rev}.{minor_rev})"
 
     def get_chip_features(self):
-        return ["Wi-Fi 6", "BT 5 (LE)", "Single Core", "160MHz"]
+        features = ["Wi-Fi 6", "BT 5 (LE)", "Single Core", "160MHz"]
+
+        flash_version = {
+            0: "No Embedded Flash",
+            1: "Embedded Flash 4MB",
+            2: "Embedded Flash 8MB",
+        }.get(self.get_flash_cap(), "Unknown Embedded Flash")
+        features += [flash_version]
+
+        psram_version = {
+            0: "No Embedded PSRAM",
+            1: "Embedded PSRAM 2MB",
+            2: "Embedded PSRAM 8MB",
+        }.get(self.get_psram_cap(), "Unknown Embedded PSRAM")
+        features += [psram_version]
+
+        return features
 
     def read_mac(self, mac_type="BASE_MAC"):
         """Read MAC from EFUSE region"""

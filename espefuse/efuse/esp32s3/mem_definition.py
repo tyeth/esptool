@@ -36,7 +36,7 @@ class EfuseDefineRegisters(EfuseRegistersBase):
     EFUSE_RD_REPEAT_ERR1_REG = DR_REG_EFUSE_BASE + 0x180
     EFUSE_RD_REPEAT_ERR2_REG = DR_REG_EFUSE_BASE + 0x184
     EFUSE_RD_REPEAT_ERR3_REG = DR_REG_EFUSE_BASE + 0x188
-    EFUSE_RD_REPEAT_ERR4_REG = DR_REG_EFUSE_BASE + 0x18C
+    EFUSE_RD_REPEAT_ERR4_REG = DR_REG_EFUSE_BASE + 0x190
     EFUSE_DAC_CONF_REG = DR_REG_EFUSE_BASE + 0x1E8
     EFUSE_RD_TIM_CONF_REG = DR_REG_EFUSE_BASE + 0x1EC
     EFUSE_WR_TIM_CONF1_REG = DR_REG_EFUSE_BASE + 0x1F4
@@ -79,12 +79,15 @@ class EfuseDefineRegisters(EfuseRegistersBase):
     EFUSE_DAC_NUM_S = 9
     EFUSE_DAC_NUM_M = 0xFF << EFUSE_DAC_NUM_S
 
-    ERRORS = [
+    BLOCK0_ERRORS = [
         EFUSE_RD_REPEAT_ERR0_REG,
         EFUSE_RD_REPEAT_ERR1_REG,
         EFUSE_RD_REPEAT_ERR2_REG,
         EFUSE_RD_REPEAT_ERR3_REG,
         EFUSE_RD_REPEAT_ERR4_REG,
+    ]
+
+    ERRORS = BLOCK0_ERRORS + [
         EFUSE_RD_RS_ERR0_REG,
         EFUSE_RD_RS_ERR1_REG,
     ]
@@ -128,7 +131,7 @@ class EfuseDefineFields(EfuseFieldsBase):
         # List of efuse fields from TRM the chapter eFuse Controller.
         self.EFUSES = []
         self.KEYBLOCKS = []
-        self.BLOCK2_CALIBRATION_EFUSES = []
+        self.CALIBRATION_EFUSES = []
         self.CALC = []
 
         dir_name = os.path.dirname(os.path.abspath(__file__))
@@ -158,7 +161,7 @@ class EfuseDefineFields(EfuseFieldsBase):
                 self.ALL_EFUSES[i] = None
 
             elif efuse.category == "calibration":
-                self.BLOCK2_CALIBRATION_EFUSES.append(efuse)
+                self.CALIBRATION_EFUSES.append(efuse)
                 self.ALL_EFUSES[i] = None
 
         self.CALC.append(

@@ -16,6 +16,7 @@ from .csv_table_parser import CSVFuseTable
 class EfuseRegistersBase:
     EFUSE_MEM_SIZE: int
     DR_REG_EFUSE_BASE: int
+    BLOCK0_ERRORS: list[int] = []
     ERRORS: list[int] = []
 
     # Coding Scheme values
@@ -52,7 +53,7 @@ class EfuseBlocksBase:
         list_of_names = []
         for block in self.BLOCKS:
             blk = self.get(block)
-            if blk.key_purpose or blk.id > 0:
+            if blk.key_purpose is not None:
                 if blk.name:
                     list_of_names.append(blk.name)
                 if blk.alias:

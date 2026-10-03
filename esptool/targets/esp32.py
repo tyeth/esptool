@@ -17,6 +17,14 @@ class ESP32ROM(ESPLoader):
     CHIP_NAME = "ESP32"
     IMAGE_CHIP_ID = 0
 
+    USB_OTG_SUPPORTED = False
+    USB_SERIAL_JTAG_SUPPORTED = False
+    WATCHDOG_RESET_SUPPORTED = False
+    SECURITY_INFO_SUPPORTED = False
+    CUSTOM_SPI_FLASH_PINS_SUPPORTED = True
+    FLASH_32BIT_ADDR_SUPPORTED = False
+    USES_MAGIC_VALUE = True
+
     MAGIC_VALUE = 0x00F01D83
 
     IROM_MAP_START = 0x400D0000
@@ -387,20 +395,92 @@ class ESP32ROM(ESPLoader):
         self.write_reg(self.RTC_CNTL_SDIO_CONF_REG, reg_val)
         log.print(f"VDDSDIO regulator set to {new_voltage}.")
 
+    # ROM read limit per command (this limit is why it's so slow)
+    ROM_READ_BLOCK_LEN = 64
+    # Smallest block worth falling back to, see read_flash_slow().
+    ROM_READ_MIN_BLOCK_LEN = 4
+    # How many times to try to re-establish a clean stream after a stall.
+    ROM_READ_RESYNC_ATTEMPTS = 4
+
+    def _drain_input(self, idle=0.1, limit=2.0):
+        """Discard input until the port has stayed quiet for ``idle`` seconds.
+
+        ``flush_input()`` only drops what has already arrived, which is not
+        enough after a stall: the leftover tail keeps landing afterwards and
+        would otherwise be parsed as the reply to the next command.
+        """
+        deadline = time.time() + limit
+        last = time.time()
+        while time.time() < deadline:
+            waiting = self._port.in_waiting
+            if waiting:
+                self._port.read(waiting)
+                last = time.time()
+            elif time.time() - last >= idle:
+                break
+            else:
+                time.sleep(0.005)
+        self.flush_input()
+
+    def _resync_after_stalled_read(self, good_addr):
+        """Recover the command stream after a stalled READ_FLASH_SLOW.
+
+        Two things have to be undone. The ROM does not abandon a response it
+        stalled part-way through -- it emits the remainder as soon as the next
+        command arrives, so the first reply after a stall is that tail
+        concatenated with the real one, and has to be thrown away. And the
+        ROM's 64 byte response buffer is persistent: a read only refreshes the
+        first ``block_len`` bytes of it, so re-reading the offending address at
+        *any* length replays the same poisoned buffer and stalls again.
+        Reading a known-good block overwrites the buffer and breaks the cycle.
+        """
+        for _ in range(self.ROM_READ_RESYNC_ATTEMPTS):
+            self._drain_input()
+            try:
+                self.check_command(
+                    "read flash block",
+                    self.ESP_CMDS["READ_FLASH_SLOW"],
+                    struct.pack("<II", good_addr, self.ROM_READ_BLOCK_LEN),
+                    resp_data_len=self.ROM_READ_BLOCK_LEN,
+                )
+                return True
+            except FatalError:
+                continue  # tail of the stalled reply, try again
+        return False
+
     def read_flash_slow(self, offset, length, progress_fn):
-        BLOCK_LEN = 64  # ROM read limit per command (this limit is why it's so slow)
+        BLOCK_LEN = self.ROM_READ_BLOCK_LEN
 
         data = b""
+        block_limit = BLOCK_LEN
+        last_good = None
         while len(data) < length:
-            block_len = min(BLOCK_LEN, length - len(data))
+            addr = offset + len(data)
+            block_len = min(block_limit, length - len(data))
             try:
                 r = self.check_command(
                     "read flash block",
                     self.ESP_CMDS["READ_FLASH_SLOW"],
-                    struct.pack("<II", offset + len(data), block_len),
+                    struct.pack("<II", addr, block_len),
                     resp_data_len=BLOCK_LEN,
                 )
             except FatalError:
+                # Some ROM + USB-Serial/JTAG combinations stall part-way
+                # through the response for particular (address, content)
+                # pairs, deterministically, so a plain retry never recovers.
+                # The bytes the ROM did send are always a correct prefix, and
+                # the address does succeed once the response buffer has been
+                # refreshed and the request shortened.
+                if block_len > self.ROM_READ_MIN_BLOCK_LEN:
+                    block_limit = max(self.ROM_READ_MIN_BLOCK_LEN, block_len // 2)
+                    log.note(
+                        f"Reading {block_len} bytes at {addr:#010x} failed, "
+                        f"retrying with {block_limit} byte blocks."
+                    )
+                    self._resync_after_stalled_read(
+                        last_good if last_good is not None else addr + BLOCK_LEN
+                    )
+                    continue
                 log.note("Consider specifying the flash size argument.")
                 raise
             if len(r) < block_len:
@@ -411,6 +491,11 @@ class ESP32ROM(ESPLoader):
             # command always returns 64 byte buffer,
             # regardless of how many bytes were actually read from flash
             data += r[:block_len]
+            last_good = addr
+            # Once realigned past a problematic address, go back to full-size
+            # blocks; staying shrunk would slow the rest of the read down.
+            if (offset + len(data)) % BLOCK_LEN == 0:
+                block_limit = BLOCK_LEN
             if progress_fn and (len(data) % 1024 == 0 or len(data) == length):
                 progress_fn(len(data), length, offset)
         return data
@@ -453,6 +538,16 @@ class ESP32ROM(ESPLoader):
 
 class ESP32StubLoader(StubMixin, ESP32ROM):
     """Stub loader for ESP32, runs on top of ROM."""
+
+    def get_crystal_freq(self):
+        # The general clock frequency algorithm (guessing from UART baud rate)
+        # does not work properly when the stub is running, because the stub
+        # switches the APB bus frequency to a fixed value derived from the
+        # PLL, decoupling it from the crystal. Use the ROM-calculated crystal
+        # frequency instead, which is unaffected by that clock switch.
+        rom_cal_freq_mhz = self.get_rom_cal_crystal_freq() / 1e6
+        # same thresholds as in ESPLoader.get_crystal_freq()
+        return 40 if rom_cal_freq_mhz > 33 else 26
 
     def change_baud(self, baud):
         ESPLoader.change_baud(self, baud)

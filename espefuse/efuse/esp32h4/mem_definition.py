@@ -78,12 +78,15 @@ class EfuseDefineRegisters(EfuseRegistersBase):
     EFUSE_DAC_NUM_S = 9
     EFUSE_DAC_NUM_M = 0xFF << EFUSE_DAC_NUM_S
 
-    ERRORS = [
+    BLOCK0_ERRORS = [
         EFUSE_RD_REPEAT_ERR0_REG,
         EFUSE_RD_REPEAT_ERR1_REG,
         EFUSE_RD_REPEAT_ERR2_REG,
         EFUSE_RD_REPEAT_ERR3_REG,
         EFUSE_RD_REPEAT_ERR4_REG,
+    ]
+
+    ERRORS = BLOCK0_ERRORS + [
         EFUSE_RD_RS_ERR0_REG,
         EFUSE_RD_RS_ERR1_REG,
     ]
@@ -130,7 +133,7 @@ class EfuseDefineFields(EfuseFieldsBase):
         self.KEYBLOCKS = []
 
         # if BLK_VERSION_MINOR is 1, these efuse fields are in BLOCK2
-        self.BLOCK2_CALIBRATION_EFUSES = []
+        self.CALIBRATION_EFUSES = []
 
         self.CALC = []
 
@@ -161,7 +164,7 @@ class EfuseDefineFields(EfuseFieldsBase):
                 self.ALL_EFUSES[i] = None
 
             elif efuse.category == "calibration":
-                self.BLOCK2_CALIBRATION_EFUSES.append(efuse)
+                self.CALIBRATION_EFUSES.append(efuse)
                 self.ALL_EFUSES[i] = None
 
         self.CALC.append(
